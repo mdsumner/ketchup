@@ -1,0 +1,230 @@
+---
+title: "Ketchup is a Vegetable"
+author: "Michael Sumner"
+date: "28 January 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This is a circle. 
+
+```{r}
+circle <- function(x = 0, y = 0, rad = 1, n_vert =  180) {
+  ## see plotrix::draw.circle
+  inc <- 2 * pi/n_vert
+  angles <- seq(0, 2 * pi - inc, by = inc)
+  angles <- c(angles, angles[1L])
+  xv <- cos(angles) * rad + x
+  yv <- sin(angles) * rad + y
+  data.frame(x = xv, y = yv)
+}
+plot(circle(), asp = 1, type = "l")
+
+
+xl <- c(-1.1, -0.9)
+yl <- c(0.14, 0.16)
+abline(v = xl, h = yl)
+```
+
+No, it is not a circle. 
+
+```{r}
+plot(xl, yl, asp = 1, type = "n")
+lines(circle(), asp = 1)
+points(circle())
+```
+
+## Correct
+
+Which is "correct"? Neither, it's a circle for some purposes, but not for others. Technically, while we can change the parameters in the approximation to be "more correct" (?), we can't ever get the mathematician's circle without rather different code than this. 
+
+```{r}
+plot(circle(n_vert = 12), type = "l", asp = 1)
+lines(circle(n_vert = 720))
+```
+
+It should be clear that we can play this game forever, and the mathematician can just say, "nah it's not a circle". (They will also quibble about "forever". . . .)
+
+What about the centre of this circle? We know where that is, by definition. Right? 
+
+```{r}
+plot(circle(), type = "l", asp = 1)
+abline(v = 0, h = 0)
+```
+
+It doesn't matter how we represent the circle, that point is always its centre. QED. 
+
+What does "centre" mean? 
+
+## Centroids ain't centroids
+
+
+```{r}
+## https://gist.github.com/mdsumner/52f8e6a674590e147ca7
+#' @param x a 2-column matrix
+centroid_weight <- function(x) {
+  # centroid (weight)
+  matrix(apply(x, 2, mean), ncol = 2)
+}
+
+library(tripack) 
+#' @param x a 2-column matrix
+centroid_circle <- function(x) {
+  ## minimum enclosing circle centre
+  mec0 <- tripack::circumcircle(x[,1], x[,2])
+  matrix(mec0[c("x", "y")], ncol = 2)
+}
+#' @param x a 2-column matrix
+centroid_box <- function(x) {
+  m <- expand.grid(x = range(x[,1]), y = range(x[,2]))
+  ## box centroid
+  matrix(apply(m, 2, mean), ncol = 2)
+}
+
+plot(circle(), asp = 1)
+points(centroid_weight(circle()), pch = 19, cex = 3)
+points(centroid_circle(circle()), pch = 19, cex = 2, col = "firebrick")
+points(centroid_box(circle()), pch = 19, cex = 1, col = "dodgerblue")
+abline(v = 0, h = 0)
+```
+
+They aren't all the same, but can we tell?  
+
+```{r}
+centroid_weight(circle())
+centroid_circle(circle())
+centroid_box(circle())
+```
+
+Only the "weight" method is *really* different, but we'd want to be careful with how we check all this. 
+
+We can make the weighted centroid *more correct*, but again we need to be careful because the *circle* method could take quite a bit of time, for no gain. 
+
+```{r}
+centroid_weight(circle(n_vert = 720))
+centroid_circle(circle(n_vert = 720))
+centroid_box(circle(n_vert = 720))
+```
+
+It might be surprising how much we need to get closer to "near-zero" for the weight method, but I think you'll agree that this is *close enough*, at least for today. Neatly, we don't even need much of a circle as input for the *circle* method to work, and be comparably fast. 
+
+```{r}
+centroid_weight(circle(n_vert = 72000))
+centroid_circle(circle(n_vert = 6))
+centroid_box(circle(n_vert = 72000))
+```
+
+This is a lot to think about and we've only looked at three definitions of "centroid". We need tonnes of points to get near to the correct centre with the weight method, but don't try giving lots of points to the circle method if you want the centre of a circle because you don't even need a circle for the circle method ..., and box really doesn't care, it's going to be fast and give the same answer no matter^1. 
+
+^[1] No, it actually *will* be different depending on the input and its approximate numeric properties. 
+
+
+## Where is the centre of Australia? 
+
+This is easy, it's Hobart!  
+
+```{r}
+## no, I don't want to go into details about whether this map is "correct"
+library(rworldmap) 
+data(countriesLow)
+
+aus <- subset(countriesLow, SOVEREIGNT == "Australia")
+```
+
+What does GEOS `r rgeos::version_GEOS0()` say? 
+
+```{r}
+rgeos::gCentroid(aus)
+
+```
+
+What about `sf` with its GEOS `r sf::sf_extSoftVersion()["GEOS"]`?
+
+
+```{r}
+sf::st_centroid(sf::st_union(sf::st_as_sf(aus)))
+```
+
+Where is that, and what about the other methods? 
+
+```{r}
+plot(aus)
+correct <- coordinates(rgeos::gCentroid(aus)); points(correct,  cex = 4); text(correct, labels = "correct", pos = 2)
+all_coords <- function(x) coordinates(as(as(x, "SpatialLinesDataFrame"), "SpatialPointsDataFrame"))
+coords <- all_coords(aus)
+abline(v = correct[1], h = correct[2])
+cw <- centroid_weight(coords); points(cw); text(cw, labels  =  "weight", pos = 4)
+cc <- centroid_circle(coords); points(cc); text(cc, labels = "circle", pos = 1)
+cb <- centroid_box(coords); points(cb); text(cb, labels = "box", pos = 2)
+```
+
+If you haven't noticed, some of these centres might not be where you expect because of the impact that the more remote rocky shores of this nation have way out to the southwest in the Indian Ocean (Heard and McDonald Islands), to the south-southeast at Macquarie Island, the east at Lord Howe Island, and a few others.
+
+Are any of these what *you* wanted? Do you have a clear idea of what *correct* should be? 
+
+## Map projections
+
+The map above is completely bogus, the world doesn't look like that from anywhere. 
+
+```{r}
+ortho <- "+proj=ortho +lon_0=120 +lat_0=-32.4 +datum=WGS84"
+library(spbabel)
+tab <- sptable(countriesLow)
+tab$NAME <- countriesLow$NAME[tab$object_]
+proj_tab <- function(x, proj, ...) {
+  xy <- rgdal::project(cbind(x$x_, x$y_), proj, ...)
+  x$x_ <- xy[ ,1]
+  x$y_ <- xy[ ,2]
+  x[is.finite(x$x_) & is.finite(x$y_), ]
+}
+o_w <- spbabel::sp(proj_tab(tab, ortho), crs = ortho)
+
+op <- par(mar = rep(0, 4))
+plot(raster::extent(o_w) - 3e6, asp = 1, type = "n", axes = FALSE)
+plot(o_w, add = TRUE)
+o_a <- subset(o_w, NAME == "Australia")
+plot(o_a, add = TRUE, col = "dodgerblue")
+
+correct <- rgeos::gCentroid(o_a)
+cw <- centroid_weight(all_coords(o_a))
+cc <- centroid_circle(all_coords(o_a))
+cb <- centroid_box(all_coords(o_a))
+points(cw)
+points(cc, cex = 4)
+points(cb)
+```
+
+Which one is correct? What if we draw the map from the perspective of the correct one? 
+
+```{r}
+llcorrect <- rgdal::project(coordinates(correct), ortho, inv = TRUE)
+ortho <- sprintf("+proj=ortho +lon_0=%f +lat_0=%f +datum=WGS84", 
+                 llcorrect[1], llcorrect[2])
+library(spbabel)
+tab <- sptable(countriesLow)
+tab$NAME <- countriesLow$NAME[tab$object_]
+proj_tab <- function(x, proj, ...) {
+  xy <- rgdal::project(cbind(x$x_, x$y_), proj, ...)
+  x$x_ <- xy[ ,1]
+  x$y_ <- xy[ ,2]
+  x[is.finite(x$x_) & is.finite(x$y_), ]
+}
+o_w <- spbabel::sp(proj_tab(tab, ortho), crs = ortho)
+
+op <- par(mar = rep(0, 4))
+plot(raster::extent(o_w) - 3e6, asp = 1, type = "n", axes = FALSE)
+plot(o_w, add = TRUE)
+o_a <- subset(o_w, NAME == "Australia")
+plot(o_a, add = TRUE, col = "dodgerblue")
+
+correct <- rgeos::gCentroid(o_a)
+cw <- centroid_weight(all_coords(o_a))
+cc <- centroid_circle(all_coords(o_a))
+cb <- centroid_box(all_coords(o_a))
+points(cw)
+points(cc, cex = 4)
+points(cb)
+```
